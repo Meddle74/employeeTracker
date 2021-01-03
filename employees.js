@@ -44,7 +44,6 @@ function askQuestions() {
       ],
     })
     .then((answer) => {
-      console.log(answer.option);
       switch (answer.option) {
         case 'Add department':
           addDept();
@@ -53,7 +52,7 @@ function askQuestions() {
           addRole();
           break;
         case 'Add employee':
-          addEmp();
+          addEmployee();
           break;
         case 'View departments':
           viewDept();
@@ -65,7 +64,7 @@ function askQuestions() {
           viewEmp();
           break;
         case 'Update roles':
-          updateEmp();
+          updateEmployee();
           break;
         case 'Exit':
           connectionEnd();
@@ -78,17 +77,17 @@ function addDept() {
   inquirer
     .prompt({
       type: 'input',
-      name: 'deptName',
+      name: 'departmentName',
       message: 'Enter the name of the department you want to add: ',
     })
 
     .then((answer) => {
       connection.query(
         'INSERT INTO department SET ?',
-        { department_name: answer.deptName },
+        { department_name: answer.departmentName },
         function (err) {
           if (err) throw err;
-          console.log('Dept added successfully');
+          console.log('Department added successfully');
           askQuestions();
         }
       );
@@ -118,7 +117,11 @@ function addRole() {
     .then((answer) => {
       connection.query(
         'INSERT INTO roles SET ?',
-        { title: answer.roleName, salary: answer.salary, dep_id: answer.depID },
+        {
+          title: answer.roleName,
+          salary: answer.salary,
+          department_id: answer.depID,
+        },
         function (err) {
           if (err) throw err;
           console.log('Role added successfully');
@@ -140,17 +143,52 @@ function selectRole() {
 }
 
 function getRoleID(data) {
-  connection.query(
-    'SELECT id FROM roles where title = ?',
-    data,
-    function (err, res) {
-      if (err) throw err;
-      console.log(res[0].id);
-    }
-  );
+  return new Promise((resolve, reject) => {
+    connection.query(
+      'SELECT id FROM roles where title = ?',
+      data,
+      function (err, res) {
+        if (err) {
+          reject(new Error(err));
+        } else {
+          resolve(res[0].id);
+        }
+      }
+    );
+  });
 }
 
-function addEmp() {
+var managerList = [];
+function selectManager() {
+  connection.query(
+    'select e.id, concat(e.first_name, " ", e.last_name, " -  " , r.title) manager from employees e join roles r on r.id = e.role_id where e.manager_id is null',
+    function (err, res) {
+      if (err) throw err;
+      for (var i = 0; i < res.length; i++) {
+        managerList.push(res[i].manager);
+      }
+    }
+  );
+  return managerList;
+}
+
+function getManagerID(data) {
+  return new Promise((resolve, reject) => {
+    connection.query(
+      'select e.id from employees e join roles r on r.id = e.role_id where concat(e.first_name, " ", e.last_name, " -  " , r.title) = ?',
+      data,
+      function (err, res) {
+        if (err) {
+          reject(new Error(err));
+        } else {
+          resolve(res[0].id);
+        }
+      }
+    );
+  });
+}
+
+function addEmployee() {
   inquirer
     .prompt([
       {
@@ -164,35 +202,40 @@ function addEmp() {
         message: "Enter the employee's last name: ",
       },
       {
-        name: 'roleName',
         type: 'list',
+        name: 'roleName',
         message: 'What is their role? ',
         choices: selectRole(),
       },
       {
-        type: 'input',
-        name: 'managID',
-        message: "Enter the employee's manager's id: ",
+        type: 'list',
+        name: 'managerID',
+        message: 'Who do they report to? ',
+        choices: selectManager(),
       },
     ])
 
     .then((answer) => {
-      var roleID = getRoleID(answer.roleName);
-      console.log(roleID);
-      connection.query(
-        'INSERT INTO employees SET ?',
-        {
-          first_name: answer.firstName,
-          last_name: answer.lastName,
-          role_id: roleID,
-          manager_id: answer.managID,
-        },
-        function (err) {
-          if (err) throw err;
-          console.log('Employee added successfully');
-          askQuestions();
-        }
-      );
+      getRoleID(answer.roleName)
+        .then((roleID) =>
+          connection.query(
+            'INSERT INTO employees SET ?',
+            {
+              first_name: answer.firstName,
+              last_name: answer.lastName,
+              role_id: roleID,
+              manager_id: answer.managerID,
+            },
+            function (err) {
+              if (err) throw err;
+              console.log('Employee added successfully');
+              askQuestions();
+            }
+          )
+        )
+        .catch(function (err) {
+          console.log(err);
+        });
     });
 }
 
@@ -223,7 +266,6 @@ function viewEmp() {
     'select e.id ID,concat(e.first_name, " ", e.last_name) Employee,r.title "Employee Title",concat("$", format(r.salary, 0)) Salary,case  when m.first_name is not null then concat(m.first_name, " ", m.last_name)  else " " end as "Manager",case  when m.first_name is not null then r2.title   else " " end as "Manager Title" from employees e left join employees m on m.id = e.manager_id left join roles r on r.id = e.role_id left join roles r2 on r2.id = m.role_id',
     function (err, res) {
       if (err) throw err;
-      console.log('SQL ran successfully');
       console.table(res);
 
       askQuestions();
@@ -231,12 +273,12 @@ function viewEmp() {
   );
 }
 
-function updateEmp() {
+function updateEmployee() {
   inquirer
     .prompt([
       {
         type: 'input',
-        name: 'idNum',
+        name: 'employeeID',
         message: "Enter the employee's id number: ",
       },
       {
@@ -247,17 +289,17 @@ function updateEmp() {
     ])
 
     .then((answer) => {
-      let idNum = answer.idNum;
-      let roleIDnum = answer.roleID;
+      let employeeID = answer.employeeID;
+      let roleID = answer.roleID;
 
       connection.query(
         'UPDATE employees SET ? WHERE ?',
         [
           {
-            role_id: roleIDnum,
+            role_id: roleID,
           },
           {
-            id: idNum,
+            id: employeeID,
           },
         ],
         function (err) {
