@@ -36,10 +36,11 @@ function askQuestions() {
         'View employees',
         'View roles',
         'View departments',
+        'View department budgets',
         'Add employee',
         'Add role',
         'Add department',
-        'Update roles',
+        'Update employee',
         'Exit',
       ],
     })
@@ -63,8 +64,11 @@ function askQuestions() {
         case 'View employees':
           viewEmp();
           break;
-        case 'Update roles':
+        case 'Update employee':
           updateEmployee();
+          break;
+        case 'View department budgets':
+          viewBudget();
           break;
         case 'Exit':
           connectionEnd();
@@ -105,12 +109,12 @@ function addRole() {
       {
         type: 'input',
         name: 'salary',
-        message: 'Enter the salary for the role you added: ',
+        message: 'What is the salary for the role you added? ',
       },
       {
         type: 'input',
         name: 'depID',
-        message: 'Enter the department ID for the role you added: ',
+        message: 'What department is this role apart of?',
       },
     ])
 
@@ -216,26 +220,28 @@ function addEmployee() {
     ])
 
     .then((answer) => {
-      getRoleID(answer.roleName)
-        .then((roleID) =>
-          connection.query(
-            'INSERT INTO employees SET ?',
-            {
-              first_name: answer.firstName,
-              last_name: answer.lastName,
-              role_id: roleID,
-              manager_id: answer.managerID,
-            },
-            function (err) {
-              if (err) throw err;
-              console.log('Employee added successfully');
-              askQuestions();
-            }
+      getRoleID(answer.roleName).then((roleID) =>
+        getManagerID(answer.managerID)
+          .then((managerID) =>
+            connection.query(
+              'INSERT INTO employees SET ?',
+              {
+                first_name: answer.firstName,
+                last_name: answer.lastName,
+                role_id: roleID,
+                manager_id: managerID,
+              },
+              function (err) {
+                if (err) throw err;
+                console.log('Employee added successfully');
+                askQuestions();
+              }
+            )
           )
-        )
-        .catch(function (err) {
-          console.log(err);
-        });
+          .catch(function (err) {
+            console.log(err);
+          })
+      );
     });
 }
 
@@ -264,6 +270,18 @@ function viewRoles() {
 function viewEmp() {
   connection.query(
     'select e.id ID,concat(e.first_name, " ", e.last_name) Employee,r.title "Employee Title",concat("$", format(r.salary, 0)) Salary,case  when m.first_name is not null then concat(m.first_name, " ", m.last_name)  else " " end as "Manager",case  when m.first_name is not null then r2.title   else " " end as "Manager Title" from employees e left join employees m on m.id = e.manager_id left join roles r on r.id = e.role_id left join roles r2 on r2.id = m.role_id',
+    function (err, res) {
+      if (err) throw err;
+      console.table(res);
+
+      askQuestions();
+    }
+  );
+}
+
+function viewBudget() {
+  connection.query(
+    'select d.department_name "Department",concat("$", format(sum(r.salary), 0)) "Budget" from department d join roles r on r.department_id = d.id group by d.id',
     function (err, res) {
       if (err) throw err;
       console.table(res);
